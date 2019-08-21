@@ -22,7 +22,7 @@ module ActiveSupport
 
         @stubs[object.object_id][method_name] = Stub.new(object, method_name, new_name)
 
-        object.singleton_class.send :alias_method, new_name, method_name
+        object.singleton_class.alias_method new_name, method_name
         object.define_singleton_method(method_name, &block)
       end
 
@@ -40,12 +40,11 @@ module ActiveSupport
       end
 
       private
-
         def unstub_object(stub)
           singleton_class = stub.object.singleton_class
-          singleton_class.send :silence_redefinition_of_method, stub.method_name
-          singleton_class.send :alias_method, stub.method_name, stub.original_method
-          singleton_class.send :undef_method, stub.original_method
+          singleton_class.silence_redefinition_of_method stub.method_name
+          singleton_class.alias_method stub.method_name, stub.original_method
+          singleton_class.undef_method stub.original_method
         end
     end
 
@@ -191,7 +190,6 @@ module ActiveSupport
       end
 
       private
-
         def simple_stubs
           @simple_stubs ||= SimpleStubs.new
         end

@@ -1,4 +1,5 @@
-import ActionCable from "./index"
+import Connection from "./connection"
+import Subscriptions from "./subscriptions"
 
 // The ActionCable.Consumer establishes the connection to a server-side Ruby Connection object. Once established,
 // the ActionCable.ConnectionMonitor will ensure that its properly maintained through heartbeats and checking for stale updates.
@@ -28,9 +29,13 @@ import ActionCable from "./index"
 
 export default class Consumer {
   constructor(url) {
-    this.url = url
-    this.subscriptions = new ActionCable.Subscriptions(this)
-    this.connection = new ActionCable.Connection(this)
+    this._url = url
+    this.subscriptions = new Subscriptions(this)
+    this.connection = new Connection(this)
+  }
+
+  get url() {
+    return createWebSocketURL(this._url)
   }
 
   send(data) {
@@ -49,5 +54,22 @@ export default class Consumer {
     if (!this.connection.isActive()) {
       return this.connection.open()
     }
+  }
+}
+
+export function createWebSocketURL(url) {
+  if (typeof url === "function") {
+    url = url()
+  }
+
+  if (url && !/^wss?:/i.test(url)) {
+    const a = document.createElement("a")
+    a.href = url
+    // Fix populating Location properties in IE. Otherwise, protocol will be blank.
+    a.href = a.href
+    a.protocol = a.protocol.replace("http", "ws")
+    return a.href
+  } else {
+    return url
   }
 }

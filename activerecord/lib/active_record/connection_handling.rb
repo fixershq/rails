@@ -85,14 +85,14 @@ module ActiveRecord
     # based on the requested role:
     #
     #   ActiveRecord::Base.connected_to(role: :writing) do
-    #     Dog.create! # creates dog using dog connection
+    #     Dog.create! # creates dog using dog writing connection
     #   end
     #
     #   ActiveRecord::Base.connected_to(role: :reading) do
     #     Dog.create! # throws exception because we're on a replica
     #   end
     #
-    #   ActiveRecord::Base.connected_to(role: :unknown_ode) do
+    #   ActiveRecord::Base.connected_to(role: :unknown_role) do
     #     # raises exception due to non-existent role
     #   end
     #
@@ -100,11 +100,20 @@ module ActiveRecord
     # you can use +connected_to+ with a +database+ argument. The +database+ argument
     # expects a symbol that corresponds to the database key in your config.
     #
-    # This will connect to a new database for the queries inside the block.
-    #
     #   ActiveRecord::Base.connected_to(database: :animals_slow_replica) do
     #     Dog.run_a_long_query # runs a long query while connected to the +animals_slow_replica+
     #   end
+    #
+    # This will connect to a new database for the queries inside the block. By
+    # default the `:writing` role will be used since all connections must be assigned
+    # a role. If you would like to use a different role you can pass a hash to database:
+    #
+    #   ActiveRecord::Base.connected_to(database: { readonly_slow: :animals_slow_replica }) do
+    #     # runs a long query while connected to the +animals_slow_replica+ using the readonly_slow role.
+    #     Dog.run_a_long_query
+    #   end
+    #
+    # When using the database key a new connection will be established every time.
     def connected_to(database: nil, role: nil, &blk)
       if database && role
         raise ArgumentError, "connected_to can only accept a `database` or a `role` argument, but not both arguments."
@@ -112,17 +121,14 @@ module ActiveRecord
         if database.is_a?(Hash)
           role, database = database.first
           role = role.to_sym
-        else
-          role = database.to_sym
         end
 
         config_hash = resolve_config_for_connection(database)
         handler = lookup_connection_handler(role)
 
-        with_handler(role) do
-          handler.establish_connection(config_hash)
-          yield
-        end
+        handler.establish_connection(config_hash)
+
+        with_handler(role, &blk)
       elsif role
         with_handler(role.to_sym, &blk)
       else
@@ -130,7 +136,31 @@ module ActiveRecord
       end
     end
 
+    # Returns true if role is the current connected role.
+    #
+    #   ActiveRecord::Base.connected_to(role: :writing) do
+    #     ActiveRecord::Base.connected_to?(role: :writing) #=> true
+    #     ActiveRecord::Base.connected_to?(role: :reading) #=> false
+    #   end
+    def connected_to?(role:)
+      current_role == role.to_sym
+    end
+
+    # Returns the symbol representing the current connected role.
+    #
+    #   ActiveRecord::Base.connected_to(role: :writing) do
+    #     ActiveRecord::Base.current_role #=> :writing
+    #   end
+    #
+    #   ActiveRecord::Base.connected_to(role: :reading) do
+    #     ActiveRecord::Base.current_role #=> :reading
+    #   end
+    def current_role
+      connection_handlers.key(connection_handler)
+    end
+
     def lookup_connection_handler(handler_key) # :nodoc:
+      handler_key ||= ActiveRecord::Base.writing_role
       connection_handlers[handler_key] ||= ActiveRecord::ConnectionAdapters::ConnectionHandler.new
     end
 
@@ -143,7 +173,7 @@ module ActiveRecord
       raise "Anonymous class is not allowed." unless name
 
       config_or_env ||= DEFAULT_ENV.call.to_sym
-      pool_name = self == Base ? "primary" : name
+      pool_name = primary_class? ? "primary" : name
       self.connection_specification_name = pool_name
 
       resolver = ConnectionAdapters::ConnectionSpecification::Resolver.new(Base.configurations)
@@ -151,6 +181,15 @@ module ActiveRecord
       config_hash[:name] = pool_name
 
       config_hash
+    end
+
+    # Clears the query cache for all connections associated with the current thread.
+    def clear_query_caches_for_current_thread
+      ActiveRecord::Base.connection_handlers.each_value do |handler|
+        handler.connection_pool_list.each do |pool|
+          pool.connection.clear_query_cache if pool.active_connection?
+        end
+      end
     end
 
     # Returns the connection currently associated with the class. This can
@@ -168,6 +207,10 @@ module ActiveRecord
         return self == Base ? "primary" : superclass.connection_specification_name
       end
       @connection_specification_name
+    end
+
+    def primary_class? # :nodoc:
+      self == Base || defined?(ApplicationRecord) && self == ApplicationRecord
     end
 
     # Returns the configuration of the associated connection as a hash:
@@ -213,7 +256,6 @@ module ActiveRecord
       :clear_all_connections!, :flush_idle_connections!, to: :connection_handler
 
     private
-
       def swap_connection_handler(handler, &blk) # :nodoc:
         old_handler, ActiveRecord::Base.connection_handler = ActiveRecord::Base.connection_handler, handler
         yield

@@ -47,10 +47,9 @@ module ActiveRecord
       end
 
       private
-
-      def current_adapter_name
-        ActiveRecord::Base.connection.adapter_name.downcase.to_sym
-      end
+        def current_adapter_name
+          ActiveRecord::Base.connection.adapter_name.downcase.to_sym
+        end
     end
 
     BigInteger = ActiveModel::Type::BigInteger

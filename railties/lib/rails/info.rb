@@ -54,10 +54,6 @@ module Rails
           table << "</table>"
         end
       end
-
-      def to_json
-        Hash[properties].to_json
-      end
     end
 
     # The Rails version.
@@ -67,12 +63,12 @@ module Rails
 
     # The Ruby version and platform, e.g. "2.0.0-p247 (x86_64-darwin12.4.0)".
     property "Ruby version" do
-      "#{RUBY_VERSION}-p#{RUBY_PATCHLEVEL} (#{RUBY_PLATFORM})"
+      RUBY_DESCRIPTION
     end
 
     # The RubyGems version, if it's installed.
     property "RubyGems version" do
-      Gem::RubyGemsVersion
+      Gem::VERSION
     end
 
     property "Rack version" do

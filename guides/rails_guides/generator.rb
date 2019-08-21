@@ -17,7 +17,7 @@ module RailsGuides
   class Generator
     GUIDES_RE = /\.(?:erb|md)\z/
 
-    def initialize(edge:, version:, all:, only:, kindle:, language:, direction: :ltr)
+    def initialize(edge:, version:, all:, only:, kindle:, language:, direction: "ltr")
       @edge      = edge
       @version   = version
       @all       = all
@@ -43,7 +43,6 @@ module RailsGuides
     end
 
     private
-
       def register_kindle_mime_types
         Mime::Type.register_alias("application/xml", :opf, %w(opf))
         Mime::Type.register_alias("application/xml", :ncx, %w(ncx))
@@ -63,9 +62,9 @@ module RailsGuides
       end
 
       def mobi
-        mobi  = "ruby_on_rails_guides_#{@version || @edge[0, 7]}"
-        mobi += ".#{@language}" if @language
-        mobi += ".mobi"
+        mobi = +"ruby_on_rails_guides_#{@version || @edge[0, 7]}"
+        mobi << ".#{@language}" if @language
+        mobi << ".mobi"
       end
 
       def initialize_dirs
@@ -118,7 +117,7 @@ module RailsGuides
       def copy_assets
         FileUtils.cp_r(Dir.glob("#{@guides_dir}/assets/*"), @output_dir)
 
-        if @direction == :rtl
+        if @direction == "rtl"
           overwrite_css_with_right_to_left_direction
         end
       end
@@ -150,8 +149,8 @@ module RailsGuides
         puts "Generating #{guide} as #{output_file}"
         layout = @kindle ? "kindle/layout" : "layout"
 
-        view = ActionView::Base.new(
-          @source_dir,
+        view = ActionView::Base.with_empty_template_cache.with_view_paths(
+          [@source_dir],
           edge:     @edge,
           version:  @version,
           mobi:     "kindle/#{mobi}",
@@ -164,7 +163,7 @@ module RailsGuides
 
           # Generate the special pages like the home.
           # Passing a template handler in the template name is deprecated. So pass the file name without the extension.
-          result = view.render(layout: layout, formats: [$1], file: $`)
+          result = view.render(layout: layout, formats: [$1.to_sym], file: $`)
         else
           body = File.read("#{@source_dir}/#{guide}")
           result = RailsGuides::Markdown.new(

@@ -8,7 +8,6 @@ module Rails
       def initialize(*) # :nodoc:
         super
         @indentation = 0
-        @after_bundle_callbacks = []
       end
 
       # Adds an entry into +Gemfile+ for the supplied gem.
@@ -41,8 +40,7 @@ module Rails
         in_root do
           str = "gem #{parts.join(", ")}"
           str = indentation + str
-          str = "\n" + str
-          append_file "Gemfile", str, verbose: false
+          append_file_with_newline "Gemfile", str, verbose: false
         end
       end
 
@@ -59,9 +57,9 @@ module Rails
         log :gemfile, "group #{str}"
 
         in_root do
-          append_file "Gemfile", "\ngroup #{str} do", force: true
+          append_file_with_newline "Gemfile", "\ngroup #{str} do", force: true
           with_indentation(&block)
-          append_file "Gemfile", "\nend\n", force: true
+          append_file_with_newline "Gemfile", "end", force: true
         end
       end
 
@@ -72,9 +70,13 @@ module Rails
         log :github, "github #{str}"
 
         in_root do
-          append_file "Gemfile", "\n#{indentation}github #{str} do", force: true
+          if @indentation.zero?
+            append_file_with_newline "Gemfile", "\ngithub #{str} do", force: true
+          else
+            append_file_with_newline "Gemfile", "#{indentation}github #{str} do", force: true
+          end
           with_indentation(&block)
-          append_file "Gemfile", "\n#{indentation}end", force: true
+          append_file_with_newline "Gemfile", "#{indentation}end", force: true
         end
       end
 
@@ -92,9 +94,9 @@ module Rails
 
         in_root do
           if block
-            append_file "Gemfile", "\nsource #{quote(source)} do", force: true
+            append_file_with_newline "Gemfile", "\nsource #{quote(source)} do", force: true
             with_indentation(&block)
-            append_file "Gemfile", "\nend\n", force: true
+            append_file_with_newline "Gemfile", "end", force: true
           else
             prepend_file "Gemfile", "source #{quote(source)}\n", verbose: false
           end
@@ -221,9 +223,12 @@ module Rails
       #   generate(:authenticated, "user session")
       def generate(what, *args)
         log :generate, what
+
+        options = args.extract_options!
+        options[:without_rails_env] = true
         argument = args.flat_map(&:to_s).join(" ")
 
-        in_root { run_ruby_script("bin/rails generate #{what} #{argument}", verbose: false) }
+        execute_command :rails, "generate #{what} #{argument}", options
       end
 
       # Runs the supplied rake task (invoked with 'rake ...')
@@ -246,15 +251,6 @@ module Rails
         execute_command :rails, command, options
       end
 
-      # Just run the capify command in root
-      #
-      #   capify!
-      def capify!
-        ActiveSupport::Deprecation.warn("`capify!` is deprecated and will be removed in the next version of Rails.")
-        log :capify, ""
-        in_root { run("#{extify(:capify)} .", verbose: false) }
-      end
-
       # Make an entry in Rails routing file <tt>config/routes.rb</tt>
       #
       #   route "root 'welcome#index'"
@@ -274,18 +270,7 @@ module Rails
         log File.read(find_in_source_paths(path))
       end
 
-      # Registers a callback to be executed after bundle and spring binstubs
-      # have run.
-      #
-      #   after_bundle do
-      #     git add: '.'
-      #   end
-      def after_bundle(&block)
-        @after_bundle_callbacks << block
-      end
-
       private
-
         # Define log for backwards compatibility. If just one argument is sent,
         # invoke say, otherwise invoke say_status. Differently from say and
         # similarly to say_status, this method respects the quiet? option given.
@@ -302,13 +287,15 @@ module Rails
         # based on the executor parameter provided.
         def execute_command(executor, command, options = {}) # :doc:
           log executor, command
-          env  = options[:env] || ENV["RAILS_ENV"] || "development"
+          env = options[:env] || ENV["RAILS_ENV"] || "development"
+          rails_env = " RAILS_ENV=#{env}" unless options[:without_rails_env]
           sudo = options[:sudo] && !Gem.win_platform? ? "sudo " : ""
           config = { verbose: false }
 
           config[:capture] = options[:capture] if options[:capture]
+          config[:abort_on_failure] = options[:abort_on_failure] if options[:abort_on_failure]
 
-          in_root { run("#{sudo}#{extify(executor)} #{command} RAILS_ENV=#{env}", config) }
+          in_root { run("#{sudo}#{extify(executor)} #{command}#{rails_env}", config) }
         end
 
         # Add an extension to the given name based on the platform.
@@ -359,6 +346,13 @@ module Rails
           instance_eval(&block)
         ensure
           @indentation -= 1
+        end
+
+        # Append string to a file with a newline if necessary
+        def append_file_with_newline(path, str, options = {})
+          gsub_file path, /\n?\z/, options do |match|
+            match.end_with?("\n") ? "" : "\n#{str}\n"
+          end
         end
     end
   end

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
-require "active_support/core_ext/hash/keys"
+require "active_support/core_ext/object/try"
+require "active_support/core_ext/integer/time"
 
 module ActionController
   module ConditionalGet
@@ -19,7 +20,7 @@ module ActionController
       # of cached pages.
       #
       #   class InvoicesController < ApplicationController
-      #     etag { current_user.try :id }
+      #     etag { current_user&.id }
       #
       #     def show
       #       # Etag will differ even for the same invoice when it's viewed by a different current_user

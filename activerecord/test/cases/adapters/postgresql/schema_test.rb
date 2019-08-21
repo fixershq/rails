@@ -104,27 +104,27 @@ class SchemaTest < ActiveRecord::PostgreSQLTestCase
   end
 
   def test_schema_names
-    assert_equal ["public", "test_schema", "test_schema2"], @connection.schema_names
+    schema_names = @connection.schema_names
+    assert_includes schema_names, "public"
+    assert_includes schema_names, "test_schema"
+    assert_includes schema_names, "test_schema2"
+    assert_includes schema_names, "hint_plan" if @connection.supports_optimizer_hints?
   end
 
   def test_create_schema
-    begin
-      @connection.create_schema "test_schema3"
-      assert @connection.schema_names.include? "test_schema3"
-    ensure
-      @connection.drop_schema "test_schema3"
-    end
+    @connection.create_schema "test_schema3"
+    assert @connection.schema_names.include? "test_schema3"
+  ensure
+    @connection.drop_schema "test_schema3"
   end
 
   def test_raise_create_schema_with_existing_schema
-    begin
+    @connection.create_schema "test_schema3"
+    assert_raises(ActiveRecord::StatementInvalid) do
       @connection.create_schema "test_schema3"
-      assert_raises(ActiveRecord::StatementInvalid) do
-        @connection.create_schema "test_schema3"
-      end
-    ensure
-      @connection.drop_schema "test_schema3"
     end
+  ensure
+    @connection.drop_schema "test_schema3"
   end
 
   def test_drop_schema

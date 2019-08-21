@@ -29,7 +29,7 @@ module ActiveRecord
 
       def test_establish_connection_uses_spec_name
         old_config = ActiveRecord::Base.configurations
-        config = { "readonly" => { "adapter" => "sqlite3" } }
+        config = { "readonly" => { "adapter" => "sqlite3", "pool" => "5" } }
         ActiveRecord::Base.configurations = config
         resolver = ConnectionAdapters::ConnectionSpecification::Resolver.new(ActiveRecord::Base.configurations)
         spec =   resolver.spec(:readonly)
@@ -367,13 +367,34 @@ module ActiveRecord
           assert_same klass2.connection, ActiveRecord::Base.connection
         end
 
+        class ApplicationRecord < ActiveRecord::Base
+          self.abstract_class = true
+        end
+
+        class MyClass < ApplicationRecord
+        end
+
         def test_connection_specification_name_should_fallback_to_parent
+          Object.send :const_set, :ApplicationRecord, ApplicationRecord
+
           klassA = Class.new(Base)
           klassB = Class.new(klassA)
+          klassC = Class.new(MyClass)
 
           assert_equal klassB.connection_specification_name, klassA.connection_specification_name
+          assert_equal klassC.connection_specification_name, klassA.connection_specification_name
+
+          assert_equal "primary", klassA.connection_specification_name
+          assert_equal "primary", klassC.connection_specification_name
+
           klassA.connection_specification_name = "readonly"
           assert_equal "readonly", klassB.connection_specification_name
+
+          ActiveRecord::Base.connection_specification_name = "readonly"
+          assert_equal "readonly", klassC.connection_specification_name
+        ensure
+          Object.send :remove_const, :ApplicationRecord
+          ActiveRecord::Base.connection_specification_name = "primary"
         end
 
         def test_remove_connection_should_not_remove_parent
@@ -381,6 +402,11 @@ module ActiveRecord
           klass2.remove_connection
           assert_not_nil ActiveRecord::Base.connection
           assert_same klass2.connection, ActiveRecord::Base.connection
+        end
+
+        def test_default_handlers_are_writing_and_reading
+          assert_equal :writing, ActiveRecord::Base.writing_role
+          assert_equal :reading, ActiveRecord::Base.reading_role
         end
       end
     end

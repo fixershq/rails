@@ -91,7 +91,7 @@ class ClientTest < ActionCable::TestCase
 
       rescue RuntimeError => ex
         # Work around https://bugs.ruby-lang.org/issues/13239
-        raise unless ex.message =~ /can't modify frozen IOError/
+        raise unless ex.message.match?(/can't modify frozen IOError/)
 
         # Handle this as if it were the IOError: do the same as above.
         server.binder.close
@@ -140,7 +140,7 @@ class ClientTest < ActionCable::TestCase
           end
         end
 
-        ws.on(:close) do |event|
+        ws.on(:close) do |_|
           closed.set
         end
       end

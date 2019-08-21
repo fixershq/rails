@@ -4,6 +4,11 @@ require "abstract_unit"
 require "controller/fake_models"
 
 class TestControllerWithExtraEtags < ActionController::Base
+  self.view_paths = [ActionView::FixtureResolver.new(
+    "test/with_implicit_template.erb" => "Hello explicitly!",
+    "test/hello_world.erb" => "Hello world!"
+  )]
+
   def self.controller_name; "test"; end
   def self.controller_path; "test"; end
 
@@ -37,6 +42,11 @@ class TestControllerWithExtraEtags < ActionController::Base
 end
 
 class ImplicitRenderTestController < ActionController::Base
+  self.view_paths = [ActionView::FixtureResolver.new(
+    "implicit_render_test/hello_world.erb" => "Hello world!",
+    "implicit_render_test/empty_action_with_template.html.erb" => "<h1>Empty action rendered this implicitly.</h1>\n"
+  )]
+
   def empty_action
   end
 
@@ -46,6 +56,10 @@ end
 
 module Namespaced
   class ImplicitRenderTestController < ActionController::Base
+    self.view_paths = [ActionView::FixtureResolver.new(
+      "namespaced/implicit_render_test/hello_world.erb" => "Hello world!"
+    )]
+
     def hello_world
       fresh_when(etag: "abc")
     end
@@ -183,6 +197,11 @@ class TestController < ActionController::Base
     render action: "hello_world"
   end
 
+  def conditional_hello_without_expires_and_public_header
+    response.headers["Cache-Control"] = "public, no-cache"
+    render action: "hello_world"
+  end
+
   def conditional_hello_with_bangs
     render action: "hello_world"
   end
@@ -260,7 +279,6 @@ class TestController < ActionController::Base
   end
 
   private
-
     def set_variable_for_layout
       @variable_for_layout = nil
     end
@@ -289,13 +307,15 @@ end
 module TemplateModificationHelper
   private
     def modify_template(name)
-      path = File.expand_path("../fixtures/#{name}.erb", __dir__)
-      original = File.read(path)
-      File.write(path, "#{original} Modified!")
+      hash = @controller.view_paths.first.instance_variable_get(:@hash)
+      key = name + ".erb"
+      original = hash[key]
+      hash[key] = "#{original} Modified!"
       ActionView::LookupContext::DetailsKey.clear
       yield
     ensure
-      File.write(path, original)
+      hash[key] = original
+      ActionView::LookupContext::DetailsKey.clear
     end
 end
 
@@ -318,11 +338,12 @@ class ExpiresInRenderTest < ActionController::TestCase
   end
 
   def test_dynamic_render_with_file
-    # This is extremely bad, but should be possible to do.
     assert File.exist?(File.expand_path("../../test/abstract_unit.rb", __dir__))
-    response = get :dynamic_render_with_file, params: { id: '../\\../test/abstract_unit.rb' }
-    assert_equal File.read(File.expand_path("../../test/abstract_unit.rb", __dir__)),
-      response.body
+    assert_deprecated do
+      assert_raises ActionView::MissingTemplate do
+        get :dynamic_render_with_file, params: { id: '../\\../test/abstract_unit.rb' }
+      end
+    end
   end
 
   def test_dynamic_render_with_absolute_path
@@ -346,9 +367,11 @@ class ExpiresInRenderTest < ActionController::TestCase
 
   def test_permitted_dynamic_render_file_hash
     assert File.exist?(File.expand_path("../../test/abstract_unit.rb", __dir__))
-    response = get :dynamic_render_permit, params: { id: { file: '../\\../test/abstract_unit.rb' } }
-    assert_equal File.read(File.expand_path("../../test/abstract_unit.rb", __dir__)),
-      response.body
+    assert_deprecated do
+      assert_raises ActionView::MissingTemplate do
+        get :dynamic_render_permit, params: { id: { file: '../\\../test/abstract_unit.rb' } }
+      end
+    end
   end
 
   def test_dynamic_render_file_hash
@@ -416,6 +439,11 @@ class ExpiresInRenderTest < ActionController::TestCase
   def test_no_expires_now_with_conflicting_cache_control_headers
     get :conditional_hello_without_expires_and_confliciting_cache_control_headers
     assert_equal "no-cache", @response.headers["Cache-Control"]
+  end
+
+  def test_no_expires_now_with_public
+    get :conditional_hello_without_expires_and_public_header
+    assert_equal "public, no-cache", @response.headers["Cache-Control"]
   end
 
   def test_date_header_when_expires_in

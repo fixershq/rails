@@ -19,7 +19,7 @@ class Module
   # public methods as your own.
   #
   # ==== Options
-  # * <tt>:to</tt> - Specifies the target object
+  # * <tt>:to</tt> - Specifies the target object name as a symbol or string
   # * <tt>:prefix</tt> - Prefixes the new method with the target name or a custom prefix
   # * <tt>:allow_nil</tt> - If set to true, prevents a +Module::DelegationError+
   #   from being raised
@@ -170,7 +170,7 @@ class Module
   # The target method must be public, otherwise it will raise +NoMethodError+.
   def delegate(*methods, to: nil, prefix: nil, allow_nil: nil, private: nil)
     unless to
-      raise ArgumentError, "Delegation needs a target. Supply an options hash with a :to key as the last argument (e.g. delegate :hello, to: :greeter)."
+      raise ArgumentError, "Delegation needs a target. Supply a keyword argument 'to' (e.g. delegate :hello, to: :greeter)."
     end
 
     if prefix == true && /^[^a-z_]/.match?(to)
@@ -205,18 +205,18 @@ class Module
       if allow_nil
         method_def = [
           "def #{method_prefix}#{method}(#{definition})",
-          "_ = #{to}",
-          "if !_.nil? || nil.respond_to?(:#{method})",
-          "  _.#{method}(#{definition})",
-          "end",
-        "end"
+          "  _ = #{to}",
+          "  if !_.nil? || nil.respond_to?(:#{method})",
+          "    _.#{method}(#{definition})",
+          "  end",
+          "end"
         ].join ";"
       else
         exception = %(raise DelegationError, "#{self}##{method_prefix}#{method} delegated to #{to}.#{method}, but #{to} is nil: \#{self.inspect}")
 
         method_def = [
           "def #{method_prefix}#{method}(#{definition})",
-          " _ = #{to}",
+          "  _ = #{to}",
           "  _.#{method}(#{definition})",
           "rescue NoMethodError => e",
           "  if _.nil? && e.name == :#{method}",
@@ -243,7 +243,7 @@ class Module
   #     end
   #
   #     def person
-  #       @event.detail.person || @event.creator
+  #       detail.person || creator
   #     end
   #
   #     private
@@ -266,7 +266,7 @@ class Module
   #     end
   #
   #     def person
-  #       @event.detail.person || @event.creator
+  #       detail.person || creator
   #     end
   #   end
   #
@@ -274,8 +274,14 @@ class Module
   # variables, methods, constants, etc.
   #
   # The delegated method must be public on the target, otherwise it will
-  # raise +NoMethodError+.
-  def delegate_missing_to(target)
+  # raise +DelegationError+. If you wish to instead return +nil+,
+  # use the <tt>:allow_nil</tt> option.
+  #
+  # The <tt>marshal_dump</tt> and <tt>_dump</tt> methods are exempt from
+  # delegation due to possible interference when calling
+  # <tt>Marshal.dump(object)</tt>, should the delegation target method
+  # of <tt>object</tt> add or remove instance variables.
+  def delegate_missing_to(target, allow_nil: nil)
     target = target.to_s
     target = "self.#{target}" if DELEGATION_RESERVED_METHOD_NAMES.include?(target)
 
@@ -284,6 +290,7 @@ class Module
         # It may look like an oversight, but we deliberately do not pass
         # +include_private+, because they do not get delegated.
 
+        return false if name == :marshal_dump || name == :_dump
         #{target}.respond_to?(name) || super
       end
 
@@ -295,7 +302,11 @@ class Module
             super
           rescue NoMethodError
             if #{target}.nil?
-              raise DelegationError, "\#{method} delegated to #{target}, but #{target} is nil"
+              if #{allow_nil == true}
+                nil
+              else
+                raise DelegationError, "\#{method} delegated to #{target}, but #{target} is nil"
+              end
             else
               raise
             end
